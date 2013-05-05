@@ -23,5 +23,12 @@ $(obj)/x509_cert_parser.o: $(obj)/x509-asn1.h $(obj)/x509_rsakey-asn1.h
 $(obj)/x509-asn1.o: $(obj)/x509-asn1.c $(obj)/x509-asn1.h
 $(obj)/x509_rsakey-asn1.o: $(obj)/x509_rsakey-asn1.c $(obj)/x509_rsakey-asn1.h
 
+#
+# PKCS1 Private Key handling
+#
+obj-$(CONFIG_PKCS1_PRIVATE_KEY_PARSER) += pkcs1_private_key_parser.o
+pkcs1_private_key_parser-y := \
+	pkcs1_private_key.o
+
 clean-files	+= x509-asn1.c x509-asn1.h
 clean-files	+= x509_rsakey-asn1.c x509_rsakey-asn1.h
