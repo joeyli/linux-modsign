@@ -13,6 +13,7 @@
 #include <linux/module.h>
 #include <keys/asymmetric-subtype.h>
 #include <keys/asymmetric-parser.h>
+#include "pkcs1_privatekey-asn1.h"
 
 /*
  * Attempt to parse a data blob for a private key.
@@ -36,6 +37,13 @@ static int pkcs1_private_key_preparse(struct key_preparsed_payload *prep)
 	/* TODO: We're pinning the module by being linked against it */
 
 	return ret;
+}
+
+int rsa_privatekey_extract_mpi(void *context, size_t hdrlen,
+				unsigned char tag,
+				const void *value, size_t vlen)
+{
+	return 0;
 }
 
 static struct asymmetric_key_parser pkcs1_private_key_parser = {

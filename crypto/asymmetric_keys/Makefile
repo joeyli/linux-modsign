@@ -28,7 +28,11 @@ $(obj)/x509_rsakey-asn1.o: $(obj)/x509_rsakey-asn1.c $(obj)/x509_rsakey-asn1.h
 #
 obj-$(CONFIG_PKCS1_PRIVATE_KEY_PARSER) += pkcs1_private_key_parser.o
 pkcs1_private_key_parser-y := \
+	pkcs1_privatekey-asn1.o \
 	pkcs1_private_key.o
+
+$(obj)/pkcs1_privatekey-asn1.o: $(obj)/pkcs1_privatekey-asn1.c $(obj)/pkcs1_privatekey-asn1.h
 
 clean-files	+= x509-asn1.c x509-asn1.h
 clean-files	+= x509_rsakey-asn1.c x509_rsakey-asn1.h
+clean-files	+= pkcs1_privatekey-asn1.c pkcs1_privatekey-asn1.h
