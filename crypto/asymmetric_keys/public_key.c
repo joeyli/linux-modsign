@@ -43,6 +43,7 @@ EXPORT_SYMBOL_GPL(pkey_hash_algo);
 const char *const pkey_id_type[PKEY_ID_TYPE__LAST] = {
 	[PKEY_ID_PGP]		= "PGP",
 	[PKEY_ID_X509]		= "X509",
+	[PKEY_ID_RSA_PRIVATE]	= "RSA_PRIVATE",
 };
 EXPORT_SYMBOL_GPL(pkey_id_type);
 
@@ -83,7 +84,7 @@ static int public_key_verify_signature(const struct key *key,
 {
 	const struct public_key *pk = key->payload.data;
 
-	if (!pk->algo->verify_signature)
+	if (pk->id_type == PKEY_ID_RSA_PRIVATE || !pk->algo->verify_signature)
 		return -ENOTSUPP;
 
 	if (sig->nr_mpi != pk->algo->n_sig_mpi) {

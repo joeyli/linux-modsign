@@ -41,6 +41,7 @@ extern const char *const pkey_hash_algo[PKEY_HASH__LAST];
 enum pkey_id_type {
 	PKEY_ID_PGP,		/* OpenPGP generated key ID */
 	PKEY_ID_X509,		/* X.509 arbitrary subjectKeyIdentifier */
+	PKEY_ID_RSA_PRIVATE,	/* PKCS1 RSA Private Key */
 	PKEY_ID_TYPE__LAST
 };
 

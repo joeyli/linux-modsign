@@ -48,13 +48,25 @@ static int pkcs1_private_key_preparse(struct key_preparsed_payload *prep)
 	if (ret < 0)
 		goto error_decode;
 
-	/* TODO: check the parser result */
+	/*
+	 * TODO: check the parser result
+	 * private key should match with a public key in keyring?
+	 */
+
+	ctx->pub->algo = &RSA_public_key_algorithm;
+	ctx->pub->id_type = PKEY_ID_RSA_PRIVATE;
 
 	/* TODO: fingerprint need gnerate by hash private key data */
 
 	/* TODO: Propose a description? */
 
 	/* TODO: We're pinning the module by being linked against it */
+	__module_get(public_key_subtype.owner);
+	prep->type_data[0] = &public_key_subtype;
+	prep->payload = ctx->pub;
+	/* prep->quotalen = 100;?? */
+
+	/* TODO: set permission to view only? */
 
 	pr_info("pkcs1_private_key_preparse done\n");
 
