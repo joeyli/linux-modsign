@@ -97,6 +97,23 @@ static int public_key_verify_signature(const struct key *key,
 }
 
 /*
+ * Generate a signature using a private key.
+ */
+static struct public_key_signature *private_key_generate_signature(
+		const struct key *key, u8 *M, enum pkey_hash_algo hash)
+{
+	const struct public_key *pk = key->payload.data;
+
+	pr_info("private_key_generate_signature start");
+
+	if (pk->id_type != PKEY_ID_RSA_PRIVATE || !pk->algo->generate_signature)
+		return ERR_PTR(-ENOTSUPP);
+
+	return pk->algo->generate_signature(pk, M, hash);
+
+}
+
+/*
  * Public key algorithm asymmetric key subtype
  */
 struct asymmetric_key_subtype public_key_subtype = {
@@ -105,5 +122,6 @@ struct asymmetric_key_subtype public_key_subtype = {
 	.describe		= public_key_describe,
 	.destroy		= public_key_destroy,
 	.verify_signature	= public_key_verify_signature,
+	.generate_signature	= private_key_generate_signature,
 };
 EXPORT_SYMBOL_GPL(public_key_subtype);

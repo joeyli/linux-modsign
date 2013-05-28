@@ -267,11 +267,23 @@ error:
 	return ret;
 }
 
+/*
+ * Perform the generation step [RFC3447 sec 8.2.1].
+ */
+static struct public_key_signature *RSA_generate_signature(
+		const struct public_key *key, u8 *M, enum pkey_hash_algo hash)
+{
+	pr_info("RSA_generate_signature start");
+
+	return 0;
+}
+
 const struct public_key_algorithm RSA_public_key_algorithm = {
 	.name		= "RSA",
 	.n_pub_mpi	= 2,
 	.n_sec_mpi	= 3,
 	.n_sig_mpi	= 1,
 	.verify_signature = RSA_verify_signature,
+	.generate_signature = RSA_generate_signature,
 };
 EXPORT_SYMBOL_GPL(RSA_public_key_algorithm);
