@@ -13,6 +13,7 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
+#include <crypto/hash.h>
 #include "public_key.h"
 
 MODULE_LICENSE("GPL");
@@ -151,6 +152,93 @@ static int RSA_I2OSP(MPI x, size_t xLen, u8 **_X)
 }
 
 /*
+ * EMSA_PKCS1-v1_5-ENCODE [RFC3447 sec 9.2]
+ * @Hash: hash function (option)
+ * @M: message to be signed, and octet string
+ * @emLen: intended length in octets of the encoded message
+ * @EM: encoded message, an octet string of length emLen
+ */
+static int EMSA_PKCS1_v1_5_ENCODE(enum pkey_hash_algo Hash, const u8 *M,
+		size_t *_emLen, u8 **_EM, struct public_key_signature *pks)
+{
+	u8 *digest;
+	struct crypto_shash *tfm;
+	struct shash_desc *desc;
+	size_t digest_size, desc_size;
+	size_t tLen, emLen;
+	u8 *T, *PS, *EM;
+	int i, ret;
+	
+	pr_info("EMSA_PKCS1_v1_5_ENCODE start\n");
+
+	/* TODO: 1) Apply the hash function to the message M to produce a hash value H */
+	tfm = crypto_alloc_shash(pkey_hash_algo[Hash], 0, 0);
+	if (IS_ERR(tfm))
+		return (PTR_ERR(tfm) == -ENOENT) ? -ENOPKG : PTR_ERR(tfm);
+
+	desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
+	digest_size = crypto_shash_digestsize(tfm);
+
+	ret = -ENOMEM;
+	digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
+	if (!digest)
+		goto error_digest;
+
+	pks->digest = digest;
+	pks->digest_size = digest_size;
+	desc = (void *) digest + digest_size;
+	desc->tfm = tfm;
+	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
+
+	ret = crypto_shash_init(desc);
+	if (ret < 0)
+		goto error;
+	ret = crypto_shash_finup(desc, M, sizeof(M), pks->digest);
+	if (ret < 0)
+		goto error;
+
+	crypto_free_shash(tfm);
+
+	/* TODO: 2) Encode the algorithm ID for the hash function and the hash value into
+	 * an ASN.1 value of type DigestInfo with the DER. Let T be the DER encoding of
+	 * the DigestInfo value and let tLen be the length in octets of T.
+	 */
+	tLen = RSA_ASN1_templates[Hash].size + pks->digest_size;
+	T = kmalloc(tLen, GFP_KERNEL);
+	memcpy(T, RSA_ASN1_templates[Hash].data, RSA_ASN1_templates[Hash].size);
+	memcpy(T + RSA_ASN1_templates[Hash].size, pks->digest, pks->digest_size);
+
+	/* TODO: 3) check If emLen < tLen + 11, output "intended encoded message length too short" */
+	/* why not just direct fill right 0xff to PS?  */
+	/* TODO: 4) Generate an octet string PS consisting of emLen - tLen - 3 octets with 0xff. */
+	emLen = tLen + 11;
+	PS = kmalloc(emLen - tLen - 3, GFP_KERNEL);
+	for (i = 0; i < (emLen - tLen - 3); i++)
+		PS[i] = 0xff;
+
+	/* TODO: 5) Concatenate PS, the DER encoding T, and other padding to form the encoded
+	 * message EM as EM = 0x00 || 0x01 || PS || 0x00 || T
+	 */
+	EM = kmalloc(3 + emLen - tLen - 3 + tLen, GFP_KERNEL);
+	EM[0] = 0x00;
+	EM[1] = 0x01;
+	memcpy(EM + 2, PS, emLen - tLen - 3);
+	EM[2 + emLen - tLen - 3] = 0x00;
+	memcpy(EM + 2 + emLen - tLen - 3 + 1, T, tLen);
+
+	*_EM = EM;
+	*_emLen = emLen;
+
+	return 0;
+
+error:
+	kfree(digest);
+error_digest:
+	crypto_free_shash(tfm);
+	return ret;
+}
+
+/*
  * Perform the RSA signature verification.
  * @H: Value of hash of data and metadata
  * @EM: The computed signature value
@@ -273,9 +361,34 @@ error:
 static struct public_key_signature *RSA_generate_signature(
 		const struct public_key *key, u8 *M, enum pkey_hash_algo hash)
 {
-	pr_info("RSA_generate_signature start");
+	struct public_key_signature *pks;
+	u8 *EM = NULL;
+	int ret;
 
-	return 0;
+	pr_info("RSA_generate_signature start\n");
+
+	ret = -ENOMEM;
+	pks = kzalloc(sizeof(*pks), GFP_KERNEL);
+	if (!pks)
+		goto error_no_pks;
+
+	/* TODO 1): EMSA-PKCS1-v1_5 encoding: */
+	EMSA_PKCS1_v1_5_ENCODE(hash, M, &pks->k, &EM, pks);	/* TODO: temporary use pks->k to be emLen */
+
+	/* TODO 2): m = OS2IP (EM) */
+
+	/* TODO 3): s = RSASP1 (K, m) */
+
+	/* TODO 4): S = I2OSP (s, k) */
+
+	/* TODO: signature S to a u8* S or set to sig->rsa.s? */
+	pks->S = EM;		/* TODO: temporary set S to EM */
+
+	return pks;
+
+error_no_pks:
+	pr_info("<==%s() = %d\n", __func__, ret);
+	return ERR_PTR(ret);
 }
 
 const struct public_key_algorithm RSA_public_key_algorithm = {
