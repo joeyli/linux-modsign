@@ -85,6 +85,39 @@ static const struct {
 };
 
 /*
+ * RSASP1() function [RFC3447 sec 5.2.1]
+ */
+static int RSASP1(const struct public_key *key, MPI m, MPI *_s)
+{
+	MPI s;
+	int ret;
+
+	/* (1) Validate 0 <= m < n */
+	if (mpi_cmp_ui(m, 0) < 0) {
+		kleave(" = -EBADMSG [m < 0]");
+		return -EBADMSG;
+	}
+	if (mpi_cmp(m, key->rsa.n) >= 0) {
+		kleave(" = -EBADMSG [m >= n]");
+		return -EBADMSG;
+	}
+
+	s = mpi_alloc(0);
+	if (!s)
+		return -ENOMEM;
+
+	/* (2) s = m^d mod n */
+	ret = mpi_powm(s, m, key->rsa.d, key->rsa.n);
+	if (ret < 0) {
+		mpi_free(s);
+		return ret;
+	}
+
+	*_s = s;
+	return 0;
+}
+
+/*
  * RSAVP1() function [RFC3447 sec 5.2.2]
  */
 static int RSAVP1(const struct public_key *key, MPI s, MPI *_m)
@@ -172,9 +205,12 @@ static int RSA_I2OSP(MPI x, size_t xLen, u8 **_X)
 static int RSA_OS2IP(u8 *X, size_t XLen, MPI *_x)
 {
 	MPI x;
+	int ret;
 
 	x = mpi_alloc((XLen + BYTES_PER_MPI_LIMB - 1) / BYTES_PER_MPI_LIMB);
-	mpi_set_buffer(x, X, XLen, 0);
+	ret = mpi_set_buffer(x, X, XLen, 0);
+	if (ret < 0)
+		return ret;
 
 	*_x = x;
 	return 0;
@@ -188,17 +224,22 @@ static int RSA_OS2IP(u8 *X, size_t XLen, MPI *_x)
  * @EM: encoded message, an octet string of length emLen
  */
 static int EMSA_PKCS1_v1_5_ENCODE(enum pkey_hash_algo Hash, const u8 *M,
-		size_t *_emLen, u8 **_EM, struct public_key_signature *pks)
+		size_t emLen, u8 **_EM, struct public_key_signature *pks)
 {
 	u8 *digest;
 	struct crypto_shash *tfm;
 	struct shash_desc *desc;
 	size_t digest_size, desc_size;
-	size_t tLen, emLen;
+	size_t tLen;
 	u8 *T, *PS, *EM;
 	int i, ret;
 	
 	pr_info("EMSA_PKCS1_v1_5_ENCODE start\n");
+
+	if (!RSA_ASN1_templates[Hash].data)
+		ret = -ENOTSUPP;
+	else
+		pks->pkey_hash_algo = Hash;
 
 	/* TODO: 1) Apply the hash function to the message M to produce a hash value H */
 	tfm = crypto_alloc_shash(pkey_hash_algo[Hash], 0, 0);
@@ -221,10 +262,10 @@ static int EMSA_PKCS1_v1_5_ENCODE(enum pkey_hash_algo Hash, const u8 *M,
 
 	ret = crypto_shash_init(desc);
 	if (ret < 0)
-		goto error;
+		goto error_shash;
 	ret = crypto_shash_finup(desc, M, sizeof(M), pks->digest);
 	if (ret < 0)
-		goto error;
+		goto error_shash;
 
 	crypto_free_shash(tfm);
 
@@ -234,14 +275,23 @@ static int EMSA_PKCS1_v1_5_ENCODE(enum pkey_hash_algo Hash, const u8 *M,
 	 */
 	tLen = RSA_ASN1_templates[Hash].size + pks->digest_size;
 	T = kmalloc(tLen, GFP_KERNEL);
+	if (!T)
+		goto error_T;
+
 	memcpy(T, RSA_ASN1_templates[Hash].data, RSA_ASN1_templates[Hash].size);
 	memcpy(T + RSA_ASN1_templates[Hash].size, pks->digest, pks->digest_size);
 
 	/* TODO: 3) check If emLen < tLen + 11, output "intended encoded message length too short" */
-	/* why not just direct fill right 0xff to PS?  */
+	if (emLen < tLen + 11) {
+		ret = EINVAL;
+		goto error_emLen;
+	}
+
 	/* TODO: 4) Generate an octet string PS consisting of emLen - tLen - 3 octets with 0xff. */
-	emLen = tLen + 11;
 	PS = kmalloc(emLen - tLen - 3, GFP_KERNEL);
+	if (!PS)
+		goto error_P;
+
 	for (i = 0; i < (emLen - tLen - 3); i++)
 		PS[i] = 0xff;
 
@@ -249,6 +299,9 @@ static int EMSA_PKCS1_v1_5_ENCODE(enum pkey_hash_algo Hash, const u8 *M,
 	 * message EM as EM = 0x00 || 0x01 || PS || 0x00 || T
 	 */
 	EM = kmalloc(3 + emLen - tLen - 3 + tLen, GFP_KERNEL);
+	if (!EM)
+		goto error_EM;
+
 	EM[0] = 0x00;
 	EM[1] = 0x01;
 	memcpy(EM + 2, PS, emLen - tLen - 3);
@@ -256,11 +309,19 @@ static int EMSA_PKCS1_v1_5_ENCODE(enum pkey_hash_algo Hash, const u8 *M,
 	memcpy(EM + 2 + emLen - tLen - 3 + 1, T, tLen);
 
 	*_EM = EM;
-	*_emLen = emLen;
+
+	kfree(PS);
+	kfree(T);
 
 	return 0;
 
-error:
+error_EM:
+	kfree(PS);
+error_P:
+error_emLen:
+	kfree(T);
+error_T:
+error_shash:
 	kfree(digest);
 error_digest:
 	crypto_free_shash(tfm);
@@ -394,6 +455,8 @@ static struct public_key_signature *RSA_generate_signature(
 	u8 *EM = NULL;
 	MPI m = NULL;
 	MPI s = NULL;
+	unsigned X_size;
+	size_t emLen;
 	int ret;
 
 	pr_info("RSA_generate_signature start\n");
@@ -404,21 +467,36 @@ static struct public_key_signature *RSA_generate_signature(
 		goto error_no_pks;
 
 	/* TODO 1): EMSA-PKCS1-v1_5 encoding: */
-	EMSA_PKCS1_v1_5_ENCODE(hash, M, &pks->k, &EM, pks);	/* TODO: temporary use pks->k to be emLen */
+	/* Use the private key modulus size to be EM length */
+	emLen = mpi_get_nbits(key->rsa.n);
+	emLen = (emLen + 7) / 8;
+
+	ret = EMSA_PKCS1_v1_5_ENCODE(hash, M, emLen, &EM, pks);
+	if (ret < 0)
+		goto error_v1_5_encode;
 
 	/* TODO 2): m = OS2IP (EM) */
-	RSA_OS2IP(EM, pks->k, &m);
+	ret = RSA_OS2IP(EM, emLen, &m);
+	if (ret < 0)
+		goto error_v1_5_encode;
 
 	/* TODO 3): s = RSASP1 (K, m) */
-	s = m;
+	RSASP1(key, m, &s);
+
+	pks->rsa.s = s;
+	pks->nr_mpi = 1;
+	pks->k = mpi_get_nbits(s);
+	pks->k = (pks->k + 7) / 8;
 
 	/* TODO 4): S = I2OSP (s, k) */
-	RSA_I2OSP(s, pks->k, &pks->S);
+	_RSA_I2OSP(s, &X_size, &pks->S);
 
 	/* TODO: signature S to a u8* S or set to sig->rsa.s? */
 
 	return pks;
 
+error_v1_5_encode:
+	kfree(pks);
 error_no_pks:
 	pr_info("<==%s() = %d\n", __func__, ret);
 	return ERR_PTR(ret);
