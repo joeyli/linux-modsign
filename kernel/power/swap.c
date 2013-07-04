@@ -30,6 +30,7 @@
 #include <linux/atomic.h>
 #include <linux/kthread.h>
 #include <linux/crc32.h>
+#include <crypto/hash.h>
 
 #include "power.h"
 
@@ -91,11 +92,13 @@ struct swap_map_handle {
 	unsigned int k;
 	unsigned long reqd_free_pages;
 	u32 crc32;
+	u8 *rsa_signature;
 };
 
 struct swsusp_header {
 	char reserved[PAGE_SIZE - 20 - sizeof(sector_t) - sizeof(int) -
-	              sizeof(u32)];
+			sizeof(u32) - sizeof(u8) * 512];
+	u8	rsa_signature[512];	/* RSA signature of snapshot */
 	u32	crc32;
 	sector_t image;
 	unsigned int flags;	/* Flags to pass to the "boot" kernel */
@@ -230,6 +233,9 @@ static int mark_swapfiles(struct swap_map_handle *handle, unsigned int flags)
 		swsusp_header->flags = flags;
 		if (flags & SF_CRC32_MODE)
 			swsusp_header->crc32 = handle->crc32;
+		/* TODO: if set RSA signature check of S4 image */
+		if (handle->rsa_signature)
+			memcpy(swsusp_header->rsa_signature, handle->rsa_signature, 512);
 		error = hib_bio_write_page(swsusp_resume_block,
 					swsusp_header, NULL);
 	} else {
@@ -448,6 +454,27 @@ static int save_image(struct swap_map_handle *handle,
 	struct timeval start;
 	struct timeval stop;
 
+	struct crypto_shash *tfm;
+	struct shash_desc *desc;
+	u8 *digest;
+	size_t digest_size, desc_size;
+
+	tfm = crypto_alloc_shash("sha256", 0, 0);
+	if (IS_ERR(tfm))
+		pr_err("IS_ERR(tfm): %ld", PTR_ERR(tfm));
+
+	printk(KERN_ERR "PM: save_image() start\n");
+	desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
+	digest_size = crypto_shash_digestsize(tfm);
+	printk(KERN_INFO "PM: desc_size: %zx, digest_size: %zx\n", desc_size, digest_size);
+	digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
+	if (!digest)
+		pr_err("digest allocate fail");		/* TODO: without signature is pollute kernel? when set to force,like kernel module sign, need stop S4 */
+	desc = (void *) digest + digest_size;
+	desc->tfm = tfm;
+	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
+	crypto_shash_init(desc);
+
 	printk(KERN_INFO "PM: Saving image data pages (%u pages)...\n",
 		nr_to_write);
 	m = nr_to_write / 10;
@@ -460,6 +487,7 @@ static int save_image(struct swap_map_handle *handle,
 		ret = snapshot_read_next(snapshot);
 		if (ret <= 0)
 			break;
+		crypto_shash_update(desc, data_of(*snapshot), PAGE_SIZE);	/* TODO check result */
 		ret = swap_write_page(handle, data_of(*snapshot), &bio);
 		if (ret)
 			break;
@@ -470,6 +498,13 @@ static int save_image(struct swap_map_handle *handle,
 	}
 	err2 = hib_wait_on_bio_chain(&bio);
 	do_gettimeofday(&stop);
+	if (digest) {
+		crypto_shash_final(desc, digest);	/* TODO: check the ret */
+		/* TODO: need generate signature by private key */
+		handle->rsa_signature = digest;
+		crypto_free_shash(tfm);
+	}
+
 	if (!ret)
 		ret = err2;
 	if (!ret)
@@ -953,6 +988,16 @@ static int swap_reader_finish(struct swap_map_handle *handle)
 	return 0;
 }
 
+/* TODO: kill, for debugging */
+static void printu8(u8 *message, int length)
+{
+	int i;
+
+	for (i = 0; i < 32; i++)
+		printk(KERN_INFO "%02X", message[i]);
+	pr_err("\n");
+}
+
 /**
  *	load_image - load the image using the swap map handle
  *	@handle and the snapshot handle @snapshot
@@ -971,6 +1016,31 @@ static int load_image(struct swap_map_handle *handle,
 	int err2;
 	unsigned nr_pages;
 
+	struct crypto_shash *tfm;
+	struct shash_desc *desc;
+	u8 *digest;
+	size_t digest_size, desc_size;
+
+	/* TODO: set hash algorithm by CONFIG */
+	tfm = crypto_alloc_shash("sha256", 0, 0);
+	if (IS_ERR(tfm))
+		pr_err("IS_ERR(tfm): %ld", IS_ERR(tfm));
+
+	printk(KERN_INFO "PM: load_image()\n");
+	desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
+	digest_size = crypto_shash_digestsize(tfm);
+	printk(KERN_INFO "PM: desc_size: %zx, digest_size: %zx\n", desc_size, digest_size);
+	digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
+	if (!digest)
+		pr_err("digest allocate fail");		/* handle allocate fail */
+	desc = (void *) digest + digest_size;
+	desc->tfm = tfm;
+	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
+
+	crypto_shash_init(desc);
+
+	/* TODO: check the ret */
+
 	printk(KERN_INFO "PM: Loading image data pages (%u pages)...\n",
 		nr_to_read);
 	m = nr_to_read / 10;
@@ -986,10 +1056,13 @@ static int load_image(struct swap_map_handle *handle,
 		ret = swap_read_page(handle, data_of(*snapshot), &bio);
 		if (ret)
 			break;
-		if (snapshot->sync_read)
+		/* TODO: rollback, need check the S4 signature check config */
+//		if (snapshot->sync_read)
 			ret = hib_wait_on_bio_chain(&bio);
 		if (ret)
 			break;
+		if (crypto_shash_update(desc, data_of(*snapshot), PAGE_SIZE) < 0)	/* TODO check result */
+			pr_info("hash update fail!\n");
 		if (!(nr_pages % m))
 			printk(KERN_INFO "PM: Image loading progress: %3d%%\n",
 			       nr_pages / m * 10);
@@ -997,6 +1070,7 @@ static int load_image(struct swap_map_handle *handle,
 	}
 	err2 = hib_wait_on_bio_chain(&bio);
 	do_gettimeofday(&stop);
+
 	if (!ret)
 		ret = err2;
 	if (!ret) {
@@ -1004,7 +1078,23 @@ static int load_image(struct swap_map_handle *handle,
 		snapshot_write_finalize(snapshot);
 		if (!snapshot_image_loaded(snapshot))
 			ret = -ENODATA;
+
+		if (digest) {
+			crypto_shash_final(desc, digest);	/* TODO: check the ret */
+			pr_err("load digest");
+			printu8(digest, 1);
+
+			pr_err("save digest");
+			printu8(swsusp_header->rsa_signature, 1);
+
+			/* TODO: call RSA signature check here */
+			if (memcmp(digest, swsusp_header->rsa_signature, 32))	/* TODO: removed after use RSA signature check */
+				pr_info("signatute check FAIL!");
+			else
+				pr_info("signature check SUCCESS!");
+		}
 	}
+
 	swsusp_show_speed(&start, &stop, nr_to_read, "Read");
 	return ret;
 }
