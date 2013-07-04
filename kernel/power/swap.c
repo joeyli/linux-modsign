@@ -623,6 +623,11 @@ static int save_image_lzo(struct swap_map_handle *handle,
 	struct cmp_data *data = NULL;
 	struct crc_data *crc = NULL;
 
+	struct crypto_shash *tfm;
+	struct shash_desc *desc;
+	u8 *digest;
+	size_t digest_size, desc_size;
+
 	/*
 	 * We'll limit the number of threads for compression to limit memory
 	 * footprint.
@@ -700,6 +705,20 @@ static int save_image_lzo(struct swap_map_handle *handle,
 	 */
 	handle->reqd_free_pages = reqd_free_pages();
 
+	printk(KERN_ERR "PM: save_image_lzo() start\n");
+	tfm = crypto_alloc_shash("sha256", 0, 0);
+	if (IS_ERR(tfm))
+		pr_err("IS_ERR(tfm): %ld", PTR_ERR(tfm));
+	desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
+	digest_size = crypto_shash_digestsize(tfm);
+	digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
+	if (!digest)
+		pr_err("digest allocate fail");		/* TODO: without signature is pollute kernel? when set to force,like kernel module sign, need stop S4 */
+	desc = (void *) digest + digest_size;
+	desc->tfm = tfm;
+	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
+	crypto_shash_init(desc);
+
 	printk(KERN_INFO
 		"PM: Using %u thread(s) for compression.\n"
 		"PM: Compressing and saving image data (%u pages)...\n",
@@ -722,6 +741,8 @@ static int save_image_lzo(struct swap_map_handle *handle,
 
 				memcpy(data[thr].unc + off,
 				       data_of(*snapshot), PAGE_SIZE);
+
+				crypto_shash_update(desc, data_of(*snapshot), PAGE_SIZE);	/* TODO check result */
 
 				if (!(nr_pages % m))
 					printk(KERN_INFO
@@ -793,6 +814,12 @@ static int save_image_lzo(struct swap_map_handle *handle,
 	}
 
 out_finish:
+	if (digest) {
+		crypto_shash_final(desc, digest);	/* TODO: check the ret */
+		/* TODO: need generate signature by private key */
+		handle->rsa_signature = digest;
+		crypto_free_shash(tfm);
+	}
 	err2 = hib_wait_on_bio_chain(&bio);
 	do_gettimeofday(&stop);
 	if (!ret)
@@ -1083,6 +1110,7 @@ static int load_image(struct swap_map_handle *handle,
 			crypto_shash_final(desc, digest);	/* TODO: check the ret */
 			pr_err("load digest");
 			printu8(digest, 1);
+			crypto_free_shash(tfm);
 
 			pr_err("save digest");
 			printu8(swsusp_header->rsa_signature, 1);
@@ -1168,6 +1196,11 @@ static int load_image_lzo(struct swap_map_handle *handle,
 	unsigned char **page = NULL;
 	struct dec_data *data = NULL;
 	struct crc_data *crc = NULL;
+
+	struct crypto_shash *tfm;
+	struct shash_desc *desc;
+	u8 *digest;
+	size_t digest_size, desc_size;
 
 	/*
 	 * We'll limit the number of threads for decompression to limit memory
@@ -1270,6 +1303,24 @@ static int load_image_lzo(struct swap_map_handle *handle,
 		}
 	}
 	want = ring_size = i;
+
+	/* TODO: set hash algorithm by CONFIG */
+	tfm = crypto_alloc_shash("sha256", 0, 0);
+	if (IS_ERR(tfm))
+		pr_err("IS_ERR(tfm): %ld", IS_ERR(tfm));
+
+	printk(KERN_INFO "PM: load_image_lzo()\n");
+	desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
+	digest_size = crypto_shash_digestsize(tfm);
+	printk(KERN_INFO "PM: desc_size: %zx, digest_size: %zx\n", desc_size, digest_size);
+	digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
+	if (!digest)
+		pr_err("digest allocate fail");		/* handle allocate fail */
+	desc = (void *) digest + digest_size;
+	desc->tfm = tfm;
+	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
+
+	crypto_shash_init(desc);
 
 	printk(KERN_INFO
 		"PM: Using %u thread(s) for decompression.\n"
@@ -1406,6 +1457,9 @@ static int load_image_lzo(struct swap_map_handle *handle,
 				memcpy(data_of(*snapshot),
 				       data[thr].unc + off, PAGE_SIZE);
 
+				if (crypto_shash_update(desc, data_of(*snapshot), PAGE_SIZE) < 0)	/* TODO check result */
+					pr_info("hash update fail!\n");
+
 				if (!(nr_pages % m))
 					printk(KERN_INFO
 					       "PM: Image loading progress: "
@@ -1447,6 +1501,21 @@ out_finish:
 					ret = -ENODATA;
 				}
 			}
+		}
+		if (digest) {
+			crypto_shash_final(desc, digest);	/* TODO: check the ret */
+			pr_err("load digest");
+			printu8(digest, 1);
+			crypto_free_shash(tfm);
+
+			pr_err("save digest");
+			printu8(swsusp_header->rsa_signature, 1);
+
+			/* TODO: call RSA signature check here */
+			if (memcmp(digest, swsusp_header->rsa_signature, 32))	/* TODO: removed after use RSA signature check */
+				pr_info("signatute check FAIL!");
+			else
+				pr_info("signature check SUCCESS!");
 		}
 	}
 	swsusp_show_speed(&start, &stop, nr_to_read, "Read");
