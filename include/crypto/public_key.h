@@ -108,6 +108,6 @@ struct key;
 extern int verify_signature(const struct key *key,
 			    const struct public_key_signature *sig);
 extern struct public_key_signature *generate_signature(const struct key *key,
-			u8 *M, enum pkey_hash_algo hash);
+			u8 *M, enum pkey_hash_algo hash_algo, const bool hash);
 
 #endif /* _LINUX_PUBLIC_KEY_H */

@@ -50,7 +50,7 @@ EXPORT_SYMBOL_GPL(verify_signature);
 
 /* TODO: the entry point of generate signature implementation */
 struct public_key_signature *generate_signature(const struct key *key, u8 *M,
-		enum pkey_hash_algo hash)
+		enum pkey_hash_algo hash_algo, const bool hash)
 {
 	const struct asymmetric_key_subtype *subtype;
 
@@ -64,6 +64,6 @@ struct public_key_signature *generate_signature(const struct key *key, u8 *M,
 	if (!subtype->generate_signature)
 		return ERR_PTR(-ENOTSUPP);
 
-	return subtype->generate_signature(key, M, hash);
+	return subtype->generate_signature(key, M, hash_algo, hash);
 }
 EXPORT_SYMBOL_GPL(generate_signature);

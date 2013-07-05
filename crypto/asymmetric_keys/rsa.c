@@ -218,13 +218,15 @@ static int RSA_OS2IP(u8 *X, size_t XLen, MPI *_x)
 
 /*
  * EMSA_PKCS1-v1_5-ENCODE [RFC3447 sec 9.2]
- * @Hash: hash function (option)
  * @M: message to be signed, and octet string
  * @emLen: intended length in octets of the encoded message
+ * @hash_algo: hash function (option)
+ * @hash: true means hash M, otherwise M is digest
  * @EM: encoded message, an octet string of length emLen
  */
-static int EMSA_PKCS1_v1_5_ENCODE(enum pkey_hash_algo Hash, const u8 *M,
-		size_t emLen, u8 **_EM, struct public_key_signature *pks)
+static int EMSA_PKCS1_v1_5_ENCODE(const u8 *M, size_t emLen,
+		enum pkey_hash_algo hash_algo, const bool hash,
+		u8 **_EM, struct public_key_signature *pks)
 {
 	u8 *digest;
 	struct crypto_shash *tfm;
@@ -236,13 +238,13 @@ static int EMSA_PKCS1_v1_5_ENCODE(enum pkey_hash_algo Hash, const u8 *M,
 	
 	pr_info("EMSA_PKCS1_v1_5_ENCODE start\n");
 
-	if (!RSA_ASN1_templates[Hash].data)
+	if (!RSA_ASN1_templates[hash_algo].data)
 		ret = -ENOTSUPP;
 	else
-		pks->pkey_hash_algo = Hash;
+		pks->pkey_hash_algo = hash_algo;
 
 	/* TODO: 1) Apply the hash function to the message M to produce a hash value H */
-	tfm = crypto_alloc_shash(pkey_hash_algo[Hash], 0, 0);
+	tfm = crypto_alloc_shash(pkey_hash_algo[hash_algo], 0, 0);
 	if (IS_ERR(tfm))
 		return (PTR_ERR(tfm) == -ENOENT) ? -ENOPKG : PTR_ERR(tfm);
 
@@ -250,36 +252,42 @@ static int EMSA_PKCS1_v1_5_ENCODE(enum pkey_hash_algo Hash, const u8 *M,
 	digest_size = crypto_shash_digestsize(tfm);
 
 	ret = -ENOMEM;
+
 	digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
 	if (!digest)
 		goto error_digest;
-
 	pks->digest = digest;
 	pks->digest_size = digest_size;
-	desc = (void *) digest + digest_size;
-	desc->tfm = tfm;
-	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
 
-	ret = crypto_shash_init(desc);
-	if (ret < 0)
-		goto error_shash;
-	ret = crypto_shash_finup(desc, M, sizeof(M), pks->digest);
-	if (ret < 0)
-		goto error_shash;
+	if (hash) {
+		desc = (void *) digest + digest_size;
+		desc->tfm = tfm;
+		desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
 
+		ret = crypto_shash_init(desc);
+		if (ret < 0)
+			goto error_shash;
+		ret = crypto_shash_finup(desc, M, sizeof(M), pks->digest);
+		if (ret < 0)
+			goto error_shash;
+	} else {
+		/* TODO: check digest size of M? */
+		memcpy(pks->digest, M, pks->digest_size);
+		pks->digest_size = digest_size;
+	}
 	crypto_free_shash(tfm);
 
 	/* TODO: 2) Encode the algorithm ID for the hash function and the hash value into
 	 * an ASN.1 value of type DigestInfo with the DER. Let T be the DER encoding of
 	 * the DigestInfo value and let tLen be the length in octets of T.
 	 */
-	tLen = RSA_ASN1_templates[Hash].size + pks->digest_size;
+	tLen = RSA_ASN1_templates[hash_algo].size + pks->digest_size;
 	T = kmalloc(tLen, GFP_KERNEL);
 	if (!T)
 		goto error_T;
 
-	memcpy(T, RSA_ASN1_templates[Hash].data, RSA_ASN1_templates[Hash].size);
-	memcpy(T + RSA_ASN1_templates[Hash].size, pks->digest, pks->digest_size);
+	memcpy(T, RSA_ASN1_templates[hash_algo].data, RSA_ASN1_templates[hash_algo].size);
+	memcpy(T + RSA_ASN1_templates[hash_algo].size, pks->digest, pks->digest_size);
 
 	/* TODO: 3) check If emLen < tLen + 11, output "intended encoded message length too short" */
 	if (emLen < tLen + 11) {
@@ -449,7 +457,8 @@ error:
  * Perform the generation step [RFC3447 sec 8.2.1].
  */
 static struct public_key_signature *RSA_generate_signature(
-		const struct public_key *key, u8 *M, enum pkey_hash_algo hash)
+		const struct public_key *key, u8 *M,
+		enum pkey_hash_algo hash_algo, const bool hash)
 {
 	struct public_key_signature *pks;
 	u8 *EM = NULL;
@@ -471,7 +480,7 @@ static struct public_key_signature *RSA_generate_signature(
 	emLen = mpi_get_nbits(key->rsa.n);
 	emLen = (emLen + 7) / 8;
 
-	ret = EMSA_PKCS1_v1_5_ENCODE(hash, M, emLen, &EM, pks);
+	ret = EMSA_PKCS1_v1_5_ENCODE(M, emLen, hash_algo, hash, &EM, pks);
 	if (ret < 0)
 		goto error_v1_5_encode;
 

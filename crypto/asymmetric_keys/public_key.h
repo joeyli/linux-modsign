@@ -26,7 +26,8 @@ struct public_key_algorithm {
 	int (*verify_signature)(const struct public_key *key,
 				const struct public_key_signature *sig);
 	struct public_key_signature* (*generate_signature)(
-		const struct public_key *key, u8 *M, enum pkey_hash_algo hash);
+		const struct public_key *key, u8 *M,
+		enum pkey_hash_algo hash_algo, const bool hash);
 };
 
 extern const struct public_key_algorithm RSA_public_key_algorithm;

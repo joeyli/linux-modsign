@@ -41,7 +41,8 @@ struct asymmetric_key_subtype {
 
 	/* Generate the signature by key of this subtype (optional) */
 	struct public_key_signature* (*generate_signature)
-		(const struct key *key, u8 *M, enum pkey_hash_algo hash);
+		(const struct key *key, u8 *M, enum pkey_hash_algo hash_algo,
+		 const bool hash);
 };
 
 /**

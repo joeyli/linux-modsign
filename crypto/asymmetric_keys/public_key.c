@@ -100,7 +100,8 @@ static int public_key_verify_signature(const struct key *key,
  * Generate a signature using a private key.
  */
 static struct public_key_signature *private_key_generate_signature(
-		const struct key *key, u8 *M, enum pkey_hash_algo hash)
+		const struct key *key, u8 *M, enum pkey_hash_algo hash_algo,
+		const bool hash)
 {
 	const struct public_key *pk = key->payload.data;
 
@@ -109,7 +110,7 @@ static struct public_key_signature *private_key_generate_signature(
 	if (pk->id_type != PKEY_ID_RSA_PRIVATE || !pk->algo->generate_signature)
 		return ERR_PTR(-ENOTSUPP);
 
-	return pk->algo->generate_signature(pk, M, hash);
+	return pk->algo->generate_signature(pk, M, hash_algo, hash);
 
 }
 
