@@ -44,6 +44,7 @@ const char *const pkey_id_type[PKEY_ID_TYPE__LAST] = {
 	[PKEY_ID_PGP]		= "PGP",
 	[PKEY_ID_X509]		= "X509",
 	[PKEY_ID_RSA_PRIVATE]	= "RSA_PRIVATE",
+	[PKEY_ID_PKCS8]		= "PKCS8",
 };
 EXPORT_SYMBOL_GPL(pkey_id_type);
 
@@ -107,7 +108,7 @@ static struct public_key_signature *private_key_generate_signature(
 
 	pr_info("private_key_generate_signature start");
 
-	if (pk->id_type != PKEY_ID_RSA_PRIVATE || !pk->algo->generate_signature)
+	if (pk->id_type != PKEY_ID_PKCS8 || !pk->algo->generate_signature)
 		return ERR_PTR(-ENOTSUPP);
 
 	return pk->algo->generate_signature(pk, M, hash_algo, hash);

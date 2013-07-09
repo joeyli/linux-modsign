@@ -32,7 +32,24 @@ pkcs1_private_key_parser-y := \
 	pkcs1_private_key.o
 
 $(obj)/pkcs1_privatekey-asn1.o: $(obj)/pkcs1_privatekey-asn1.c $(obj)/pkcs1_privatekey-asn1.h
+$(obj)/pkcs8-asn1.o: $(obj)/pkcs8-asn1.c $(obj)/pkcs8-asn1.h
+
+#
+# PKCS8 Private Key handling
+#
+obj-$(CONFIG_PKCS8_PRIVATE_KEY_INFO_PARSER) += pkcs8_key_parser.o
+pkcs8_key_parser-y := \
+	pkcs8-asn1.o \
+	pkcs8_rsakey-asn1.o \
+	pkcs8_info_parser.o \
+	pkcs8_private_key.o
+
+$(obj)/pkcs8_info_parser.o: $(obj)/pkcs8-asn1.c $(obj)/pkcs8_rsakey-asn1.h
+$(obj)/pkcs8-asn1.o: $(obj)/pkcs8-asn1.c $(obj)/pkcs8-asn1.h
+$(obj)/pkcs8_rsakey-asn1.o: $(obj)/pkcs8_rsakey-asn1.c $(obj)/pkcs8_rsakey-asn1.h
 
 clean-files	+= x509-asn1.c x509-asn1.h
 clean-files	+= x509_rsakey-asn1.c x509_rsakey-asn1.h
 clean-files	+= pkcs1_privatekey-asn1.c pkcs1_privatekey-asn1.h
+clean-files	+= pkcs8-asn1.c pkcs8-asn1.h
+clean-files	+= pkcs8_rsakey-asn1.c pkcs8_rsakey-asn1.h
