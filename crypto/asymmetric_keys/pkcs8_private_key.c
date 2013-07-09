@@ -54,7 +54,6 @@ static int pkcs8_key_preparse(struct key_preparsed_payload *prep)
 	info->priv->id_type = PKEY_ID_PKCS8;
 
 	/* Hash the pkcs #8 blob to generate fingerprint */
-	ret = -ENOMEM;
 	tfm = crypto_alloc_shash(FINGERPRINT_HASH, 0, 0);
 	if (IS_ERR(tfm)) {
 		ret = PTR_ERR(tfm); 
@@ -62,15 +61,19 @@ static int pkcs8_key_preparse(struct key_preparsed_payload *prep)
 	}
         desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
         digest_size = crypto_shash_digestsize(tfm);
-        digest = kzalloc(digest_size, GFP_KERNEL);
+
+	ret = -ENOMEM;
+
+	digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
         if (!digest)
 		goto error_digest;
-        desc = kmalloc(desc_size, GFP_KERNEL);
-        if (!desc)
-		goto error_desc;
+	desc = (void *) digest + digest_size;
         desc->tfm = tfm;
         desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
-	crypto_shash_init(desc);
+
+	ret = crypto_shash_init(desc);
+	if (ret < 0)
+		goto error_shash_init;
 	ret = crypto_shash_finup(desc, prep->data, prep->datalen, digest);
 	if (ret < 0)
 		goto error_shash_finup;
@@ -102,19 +105,23 @@ static int pkcs8_key_preparse(struct key_preparsed_payload *prep)
 	pr_info("pkcs8_key_preparse done\n");
 
 	/* We've finished with the information */
+	kfree(digest);
+	crypto_free_shash(tfm);
 	info->priv = NULL;
-	ret = 0;
+	pkcs8_free_info(info);
+
+	return 0;
 
 error_description:
 	kfree(fingerprint);
 error_fingerprint:
 error_shash_finup:
-	kfree(desc);
-error_desc:
+error_shash_init:
 	kfree(digest);
 error_digest:
 	crypto_free_shash(tfm);
 error_shash:
+	info->priv = NULL;
 	pkcs8_free_info(info);
 	return ret;
 }
