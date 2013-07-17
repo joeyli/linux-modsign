@@ -155,6 +155,12 @@ extern int swsusp_check(void);
 extern void swsusp_free(void);
 extern int swsusp_read(unsigned int *flags_p);
 extern int swsusp_write(unsigned int flags);
+extern int private_key_read(void);
+extern struct key *load_sign_key(void);
+extern struct key *get_sign_key(void);
+extern struct key *load_wake_key(void);
+extern size_t get_key_length(const struct key *key);
+extern void printu8(u8 *message, int length);
 extern void swsusp_close(fmode_t);
 #ifdef CONFIG_SUSPEND
 extern int swsusp_unmark(void);

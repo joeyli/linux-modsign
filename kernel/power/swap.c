@@ -30,7 +30,10 @@
 #include <linux/atomic.h>
 #include <linux/kthread.h>
 #include <linux/crc32.h>
+#include <linux/efi.h>
 #include <crypto/hash.h>
+#include <crypto/public_key.h>
+#include <keys/asymmetric-type.h>
 
 #include "power.h"
 
@@ -459,6 +462,9 @@ static int save_image(struct swap_map_handle *handle,
 	u8 *digest;
 	size_t digest_size, desc_size;
 
+	struct key *s4_sign_key;
+	struct public_key_signature *pks;
+
 	tfm = crypto_alloc_shash("sha256", 0, 0);
 	if (IS_ERR(tfm))
 		pr_err("IS_ERR(tfm): %ld", PTR_ERR(tfm));
@@ -500,8 +506,31 @@ static int save_image(struct swap_map_handle *handle,
 	do_gettimeofday(&stop);
 	if (digest) {
 		crypto_shash_final(desc, digest);	/* TODO: check the ret */
-		/* TODO: need generate signature by private key */
-		handle->rsa_signature = digest;
+
+		/* generate signature by private key */
+		s4_sign_key = get_sign_key();
+		if (s4_sign_key && !IS_ERR(s4_sign_key))
+		{
+			pks = generate_signature(s4_sign_key, digest, PKEY_HASH_SHA256, false);
+			if (IS_ERR(pks))
+				/* TODO: taint kernel */
+				pr_err("Generate signature fail: %lx", PTR_ERR(pks));
+			else
+				memcpy(handle->rsa_signature, pks->S, pks->k);
+
+			if (pks)
+			{
+				if (pks->digest)
+					kfree(pks->digest = digest);
+				if (pks->rsa.s)
+					mpi_free(pks->rsa.s);
+				kfree(pks);
+			}
+		} else {
+			/* TODO: taint kernel */
+			pr_err("Get S4 sign key fail: %ld", PTR_ERR(s4_sign_key));
+		}
+
 		crypto_free_shash(tfm);
 	}
 
@@ -1015,16 +1044,6 @@ static int swap_reader_finish(struct swap_map_handle *handle)
 	return 0;
 }
 
-/* TODO: kill, for debugging */
-static void printu8(u8 *message, int length)
-{
-	int i;
-
-	for (i = 0; i < 32; i++)
-		printk(KERN_INFO "%02X", message[i]);
-	pr_err("\n");
-}
-
 /**
  *	load_image - load the image using the swap map handle
  *	@handle and the snapshot handle @snapshot
@@ -1047,6 +1066,11 @@ static int load_image(struct swap_map_handle *handle,
 	struct shash_desc *desc;
 	u8 *digest;
 	size_t digest_size, desc_size;
+
+	struct key *s4_wake_key;
+	struct public_key_signature *pks;
+	int v_ret = 0;
+	MPI mpi;
 
 	/* TODO: set hash algorithm by CONFIG */
 	tfm = crypto_alloc_shash("sha256", 0, 0);
@@ -1108,18 +1132,44 @@ static int load_image(struct swap_map_handle *handle,
 
 		if (digest) {
 			crypto_shash_final(desc, digest);	/* TODO: check the ret */
-			pr_err("load digest");
-			printu8(digest, 1);
 			crypto_free_shash(tfm);
 
-			pr_err("save digest");
-			printu8(swsusp_header->rsa_signature, 1);
+			/* load public key */
+			s4_wake_key = load_wake_key();
+			if (s4_wake_key && !IS_ERR(s4_wake_key)) {
+				pks = kzalloc(digest_size + sizeof(*pks), GFP_KERNEL);
+				if (!pks) {
+					/* TODO: Taint kernel*/
+					pr_err("Allocate public key signature fail!");
+				} else {
+					pks->pkey_hash_algo = PKEY_HASH_SHA256;
+					pks->digest = digest;
+					pks->digest_size = digest_size;
 
-			/* TODO: call RSA signature check here */
-			if (memcmp(digest, swsusp_header->rsa_signature, 32))	/* TODO: removed after use RSA signature check */
-				pr_info("signatute check FAIL!");
-			else
-				pr_info("signature check SUCCESS!");
+					mpi = mpi_read_raw_data(swsusp_header->rsa_signature, get_key_length(s4_wake_key));
+					if (mpi) {
+						pks->mpi[0] = mpi;
+						pks->nr_mpi = 1;
+
+						/* RSA signature check */
+						v_ret = verify_signature(s4_wake_key, pks);
+						if (v_ret)
+							/* TODO: taint kernel*/
+							pr_err("S4 signature verification fail: %d\n", v_ret);
+						else
+							pr_info("S4 signature verification pass\n");
+					} else
+						/* TODO: taint kernel */
+						pr_err("mpi_read_raw_data fail!\n");
+
+					if (pks->rsa.s)
+						mpi_free(pks->rsa.s);
+					kfree(pks);
+				}
+			} else {
+				/* TODO: taint kernel */
+				pr_err("Get S4 wake key fail: %ld\n", PTR_ERR(s4_wake_key));
+			}
 		}
 	}
 
@@ -1505,11 +1555,11 @@ out_finish:
 		if (digest) {
 			crypto_shash_final(desc, digest);	/* TODO: check the ret */
 			pr_err("load digest");
-			printu8(digest, 1);
+			printu8(digest, 32);
 			crypto_free_shash(tfm);
 
 			pr_err("save digest");
-			printu8(swsusp_header->rsa_signature, 1);
+			printu8(swsusp_header->rsa_signature, 32);
 
 			/* TODO: call RSA signature check here */
 			if (memcmp(digest, swsusp_header->rsa_signature, 32))	/* TODO: removed after use RSA signature check */
