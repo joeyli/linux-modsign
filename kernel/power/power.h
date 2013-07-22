@@ -3,6 +3,9 @@
 #include <linux/utsname.h>
 #include <linux/freezer.h>
 
+/* The maximum length of snapshot signature */
+#define SIG_LENG 512
+
 struct swsusp_info {
 	struct new_utsname	uts;
 	u32			version_code;
@@ -11,6 +14,7 @@ struct swsusp_info {
 	unsigned long		image_pages;
 	unsigned long		pages;
 	unsigned long		size;
+	u8			signature[SIG_LENG];
 } __attribute__((aligned(PAGE_SIZE)));
 
 #ifdef CONFIG_HIBERNATION
@@ -160,6 +164,7 @@ extern struct key *load_sign_key(void);
 extern struct key *get_sign_key(void);
 extern struct key *load_wake_key(void);
 extern size_t get_key_length(const struct key *key);
+int snapshot_image_verify(void);
 extern void printu8(u8 *message, int length);
 extern void swsusp_close(fmode_t);
 #ifdef CONFIG_SUSPEND

@@ -1129,6 +1129,10 @@ static int load_image(struct swap_map_handle *handle,
 		snapshot_write_finalize(snapshot);
 		if (!snapshot_image_loaded(snapshot))
 			ret = -ENODATA;
+		if (!snapshot_image_verify())
+			pr_info("PM: snapshot signature check SUCCESS!\n");
+		else	/* TODO: taint kernel */
+			pr_info("PM: snapshot signature check FAIL!\n");
 
 		if (digest) {
 			crypto_shash_final(desc, digest);	/* TODO: check the ret */
@@ -1543,6 +1547,10 @@ out_finish:
 		snapshot_write_finalize(snapshot);
 		if (!snapshot_image_loaded(snapshot))
 			ret = -ENODATA;
+		if (!snapshot_image_verify())
+			pr_info("PM: snapshot signature check SUCCESS!\n");
+		else	/* TODO: taint kernel */
+			pr_info("PM: snapshot signature check FAIL!\n");
 		if (!ret) {
 			if (swsusp_header->flags & SF_CRC32_MODE) {
 				if(handle->crc32 != swsusp_header->crc32) {
