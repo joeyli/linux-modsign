@@ -1116,7 +1116,6 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 	crypto_shash_final(desc, digest);
 	if (ret)
 		goto error_shash;
-	crypto_free_shash(tfm);
 
 	/* Generate signature by private key */
 	s4_sign_key = get_sign_key();
@@ -1137,10 +1136,12 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 		memcpy(signature, pks->S, pks->k);
 
 	if (pks && pks->digest)
-		kfree(pks->digest = digest);
+		kfree(pks->digest);
 	if (pks && pks->rsa.s)
 		mpi_free(pks->rsa.s);
 	kfree(pks);
+	kfree(digest);
+	crypto_free_shash(tfm);
 
 	return 0;
 
@@ -2521,7 +2522,6 @@ int snapshot_image_verify(void)
 	ret = crypto_shash_final(desc, digest);
 	if (ret)
 		goto error_shash;
-	crypto_free_shash(tfm);
 
 	ret = snapshot_verify_signature(digest, digest_size);
 	if (ret)
@@ -2529,6 +2529,7 @@ int snapshot_image_verify(void)
 
 	kfree(h_buf);
 	kfree(digest);
+	crypto_free_shash(tfm);
 	return 0;
 
 error_verify:
