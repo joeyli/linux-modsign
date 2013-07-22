@@ -24,6 +24,7 @@
 #include <linux/console.h>
 #include <linux/cpu.h>
 #include <linux/freezer.h>
+#include <linux/key.h>
 
 #include <asm/uaccess.h>
 
@@ -196,6 +197,7 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 	struct snapshot_data *data;
 	loff_t size;
 	sector_t offset;
+	struct key *key;
 
 	if (_IOC_TYPE(cmd) != SNAPSHOT_IOC_MAGIC)
 		return -ENOTTY;
@@ -230,6 +232,12 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		pm_restore_gfp_mask();
 		thaw_processes();
 		data->frozen = 0;
+		key = load_sign_key();
+		if (IS_ERR(key)) {
+			pr_err("Load private key fail: %ld", PTR_ERR(key));
+			/* error = PTR_ERR(key); */
+			/* TODO: taint kernel */
+		}
 		break;
 
 	case SNAPSHOT_CREATE_IMAGE:
@@ -255,8 +263,11 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		}
 		if (!snapshot_image_verify())
 			pr_info("PM: snapshot signature check SUCCESS!\n");
-		else	/* TODO: taint kernel */
+		else {	/* TODO: taint kernel */
 			pr_info("PM: snapshot signature check FAIL!\n");
+			error = -EPERM;
+			break;
+		}
 		error = hibernation_restore(data->platform_support);
 		break;
 
