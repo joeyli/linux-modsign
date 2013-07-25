@@ -11,26 +11,8 @@
 static efi_char16_t efi_s4_sign_key_name[10] = { 'S', '4', 'S', 'i', 'g', 'n', 'K', 'e', 'y', 0 };
 static efi_char16_t efi_s4_wake_key_name[10] = { 'S', '4', 'W', 'a', 'k', 'e', 'K', 'e', 'y', 0 };
 
-static struct key *s4_sign_key;
-static struct key *s4_wake_key;
-
-/* TODO: kill, for debugging */
-void printu8(u8 *message, int length)
-{
-	char *message_str;
-	int i;
-
-	message_str = kzalloc(length * 2 + 1, GFP_KERNEL);
-	if (!message_str)
-		return;
-
-	for (i = 0; i < length; i++)
-		sprintf(message_str + i * 2, "%02x", message[i]);
-
-	pr_info("%s\n", message_str);
-
-	kfree(message_str);
-}
+static void *skey_page_addr;
+static unsigned long skey_dsize;
 
 static int efi_status_to_err(efi_status_t status)
 {
@@ -62,113 +44,176 @@ static int efi_status_to_err(efi_status_t status)
 	return err;
 }
 
-static struct key *efi_key_load(efi_char16_t *var_name, char *key_desc)
+bool swsusp_page_is_sign_key(struct page *page)
 {
-	const struct cred *cred = current_cred();
-	unsigned long datasize = 0;
-	u32 attributes;
-	void *data;
-	struct key *key;
-	efi_status_t status;
-	int err;
+	unsigned long skey_page_addr_pfn;
+	bool ret;
 
-	key = ERR_PTR(-EINVAL);
+	if (!skey_page_addr || IS_ERR(skey_page_addr))
+		return false;
 
-	if (!efi_enabled(EFI_RUNTIME_SERVICES))
-		return 0;
+	skey_page_addr_pfn = page_to_pfn(virt_to_page(skey_page_addr));
+	ret = (page_to_pfn(page) == skey_page_addr_pfn) ? true : false;
+	if (ret)
+		pr_info("PM: Avoid snapshot the page of S4 sign key.\n");
 
-	/* obtain the size */
-	status = efi.get_variable(var_name, &EFI_HIBERNATE_GUID,
-				  NULL, &datasize, NULL);
-	if (status != EFI_BUFFER_TOO_SMALL) {
-		pr_err("Couldn't get size: 0x%lx\n", status);
-		key = ERR_PTR(efi_status_to_err(status));
-		goto error_size;
-	}
-
-	data = kmalloc(datasize, GFP_KERNEL);
-	if (!data) {
-		key = ERR_PTR(-ENOMEM);
-		goto error_size;
-	}
-
-	status = efi.get_variable(var_name, &EFI_HIBERNATE_GUID,
-				&attributes, &datasize, data);
-	if (status) {
-		key = ERR_PTR(efi_status_to_err(status));
-		pr_err("Get variable error: %ld, ", PTR_ERR(key));
-		goto error_get;
-	}
-
-	key = key_alloc(&key_type_asymmetric, key_desc,
-			GLOBAL_ROOT_UID, GLOBAL_ROOT_GID,
-			cred, 0, KEY_ALLOC_NOT_IN_QUOTA);
-	if (IS_ERR(key)) {
-		pr_err("Allocate key error: %ld, ", PTR_ERR(key));
-		goto error_get;
-	}
-
-	err = key_instantiate_and_link(key, data, datasize, NULL, NULL);
-	if (err < 0) {
-		pr_err("Key instantiate error: %d", err);
-		if (key)
-			key_put(key);
-		key = ERR_PTR(err);
-	}
-
-error_get:
-	kfree(data);
-error_size:
-	return key;
+	return ret;
 }
 
-struct key *load_sign_key(void)
+static void *efi_key_load_data(efi_char16_t *var_name, unsigned long *datasize)
 {
-	pr_info("sign_key_read, before: \n");
-	if (s4_sign_key && !IS_ERR(s4_sign_key))
-		printu8(s4_sign_key->payload.data, 32);              /* TODO: kill debug */
-	pr_info("\n");
+	u32 attributes;
+	void *data_page;
+	efi_status_t status;
 
-	s4_sign_key = efi_key_load(efi_s4_sign_key_name, "s4_sign_key");
-	if (IS_ERR(s4_sign_key))
-		pr_err("Load private key fail: %ld", PTR_ERR(s4_sign_key));
-	if (!s4_sign_key)						/* TODO: kill */
-		pr_info("s4_sign_key load to NULL???\n");
+	if (!efi_enabled(EFI_RUNTIME_SERVICES))
+		return ERR_PTR(-EPERM);
 
-	pr_info("sign_key_read, after: \n");                         /* TODO: kill */
-	if (s4_sign_key && !IS_ERR(s4_sign_key))
-		printu8(s4_sign_key->payload.data, 32);
-	pr_info("\n");
+	/* obtain the size */
+	*datasize = 0;
+	status = efi.get_variable(var_name, &EFI_HIBERNATE_GUID,
+				  NULL, datasize, NULL);
+	if (status != EFI_BUFFER_TOO_SMALL) {
+		data_page = ERR_PTR(efi_status_to_err(status));
+		pr_err("PM: Couldn't get key data size: 0x%lx\n", status);
+		goto error_size;
+	}
+	if (*datasize > PAGE_SIZE) {
+		data_page = ERR_PTR(-EBADMSG);
+		goto error_size;
+	}
 
-	return s4_sign_key;
+	data_page = (void *)get_zeroed_page(GFP_KERNEL);
+	if (!data_page) {
+		data_page = ERR_PTR(-ENOMEM);
+		goto error_page;
+	}
+	status = efi.get_variable(var_name, &EFI_HIBERNATE_GUID,
+				&attributes, datasize, data_page);
+	if (status) {
+		data_page = ERR_PTR(efi_status_to_err(status));
+		pr_err("PM: Get key data error: %ld\n", PTR_ERR(data_page));
+		goto error_get;
+	}
+
+	/* clean S4 key data from EFI variable */
+	status = efi.set_variable(var_name, &EFI_HIBERNATE_GUID, attributes, 0, NULL);
+	if (status != EFI_SUCCESS)
+		pr_warn("PM: Clean key data error: %lx, %d\n", status, efi_status_to_err(status));
+
+	return data_page;
+
+error_get:
+	free_page((unsigned long) data_page);
+	*datasize = 0;
+error_page:
+error_size:
+	return data_page;
+}
+
+int load_sign_key_data(void)
+{
+	int ret = 0;
+
+	if (skey_page_addr && !IS_ERR(skey_page_addr))
+		free_page((unsigned long) skey_page_addr);
+
+	skey_dsize = 0;
+	skey_page_addr = efi_key_load_data(efi_s4_sign_key_name, &skey_dsize);
+	if (IS_ERR(skey_page_addr)) {
+		ret = PTR_ERR(skey_page_addr);
+		pr_err("PM: Load s4 sign key data error: %d\n", ret);
+	} else
+		pr_info("PM: Load s4 sign key data success!\n");
+
+	return ret;
 }
 
 static int init_sign_key(void)
 {
-	struct key *key;
-
-	key = load_sign_key();
-	if (IS_ERR(key))
-		return PTR_ERR(key);
-
-	return 0;
+	return load_sign_key_data();
 }
 
 
 struct key *get_sign_key(void)
 {
-	return s4_sign_key;
+	const struct cred *cred = current_cred();
+	struct key *skey;
+	int err;
+
+	if (!skey_page_addr || IS_ERR(skey_page_addr))
+		return ERR_PTR(-EBADMSG);
+
+	skey = key_alloc(&key_type_asymmetric, "s4_sign_key",
+			GLOBAL_ROOT_UID, GLOBAL_ROOT_GID,
+			cred, 0, KEY_ALLOC_NOT_IN_QUOTA);
+	if (IS_ERR(skey)) {
+		pr_err("PM: Allocate s4 sign key error: %ld\n", PTR_ERR(skey));
+		goto error_keyalloc;
+	}
+	err = key_instantiate_and_link(skey, skey_page_addr, skey_dsize, NULL, NULL);
+	if (err < 0) {
+		pr_err("PM: S4 sign key instantiate error: %d\n", err);
+		if (skey)
+			key_put(skey);
+		skey = ERR_PTR(err);
+		goto error_keyinit;
+	}
+
+	return skey;
+
+error_keyinit:
+	free_page((unsigned long)skey_page_addr);
+	skey_dsize = 0;
+error_keyalloc:
+	return skey;
+}
+
+void destroy_sign_key(struct key *skey)
+{
+	if (!skey_page_addr || IS_ERR(skey_page_addr))
+		return;
+
+	memset(skey_page_addr, 0, skey_dsize);
+	free_page((unsigned long)skey_page_addr);
+	skey_dsize = 0;
+	if (skey)
+		key_put(skey);
 }
 
 struct key *load_wake_key(void)
 {
-	s4_wake_key = efi_key_load(efi_s4_wake_key_name, "s4_wake_key");
-	if (IS_ERR(s4_wake_key))
-		pr_err("Load S4 wake key fail: %ld", PTR_ERR(s4_wake_key));
-	if (!s4_wake_key)						/* TODO: kill */
-		pr_info("s4_wake_key load to NULL???\n");
+	const struct cred *cred = current_cred();
+	void *page_addr;
+	unsigned long datasize = 0;
+	struct key *wkey;
+	int err;
 
-	return s4_wake_key;
+	page_addr = efi_key_load_data(efi_s4_wake_key_name, &datasize);
+	if (IS_ERR(page_addr)) {
+		wkey = (struct key *)page_addr;
+		goto error_data;
+	}
+
+	wkey = key_alloc(&key_type_asymmetric, "s4_wake_key",
+			GLOBAL_ROOT_UID, GLOBAL_ROOT_GID,
+			cred, 0, KEY_ALLOC_NOT_IN_QUOTA);
+	if (IS_ERR(wkey)) {
+		pr_err("PM: Allocate s4 wake key error: %ld\n", PTR_ERR(wkey));
+		goto error_keyalloc;
+	}
+	err = key_instantiate_and_link(wkey, page_addr, datasize, NULL, NULL);
+	if (err < 0) {
+		pr_err("PM: S4 wake key instantiate error: %d\n", err);
+		if (wkey)
+			key_put(wkey);
+		wkey = ERR_PTR(err);
+	}
+
+error_keyalloc:
+	free_page((unsigned long)page_addr);
+error_data:
+	return wkey;
 }
 
 size_t get_key_length(const struct key *key)

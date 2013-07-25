@@ -197,7 +197,6 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 	struct snapshot_data *data;
 	loff_t size;
 	sector_t offset;
-	struct key *key;
 
 	if (_IOC_TYPE(cmd) != SNAPSHOT_IOC_MAGIC)
 		return -ENOTTY;
@@ -230,14 +229,14 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		if (!data->frozen || data->ready)
 			break;
 		pm_restore_gfp_mask();
-		thaw_processes();
-		data->frozen = 0;
-		key = load_sign_key();
-		if (IS_ERR(key)) {
-			pr_err("Load private key fail: %ld", PTR_ERR(key));
+		error = load_sign_key_data();
+		if (error) {
+			pr_err("Load private key fail: %d", error);
 			/* error = PTR_ERR(key); */
 			/* TODO: taint kernel */
 		}
+		thaw_processes();
+		data->frozen = 0;
 		break;
 
 	case SNAPSHOT_CREATE_IMAGE:

@@ -631,7 +631,6 @@ static void power_down(void)
  */
 int hibernate(void)
 {
-	struct key *key;
 	int error;
 
 	lock_system_sleep();
@@ -683,9 +682,9 @@ int hibernate(void)
 		in_suspend = 0;
 		pm_restore_gfp_mask();
 	} else {
-		key = load_sign_key();
-		if (IS_ERR(key)) {
-			pr_err("Load private key fail: %ld", PTR_ERR(key));
+		error = load_sign_key_data();
+		if (error) {
+			pr_err("Load private key fail: %d", error);
 			/* error = PTR_ERR(key); */
 			/* TODO: taint kernel */
 		}

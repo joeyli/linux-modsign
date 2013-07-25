@@ -859,6 +859,9 @@ static struct page *saveable_highmem_page(struct zone *zone, unsigned long pfn)
 
 	BUG_ON(!PageHighMem(page));
 
+	if (swsusp_page_is_sign_key(page))
+		return NULL;
+
 	if (swsusp_page_is_forbidden(page) ||  swsusp_page_is_free(page) ||
 	    PageReserved(page))
 		return NULL;
@@ -920,6 +923,9 @@ static struct page *saveable_page(struct zone *zone, unsigned long pfn)
 		return NULL;
 
 	BUG_ON(PageHighMem(page));
+
+	if (swsusp_page_is_sign_key(page))
+		return NULL;
 
 	if (swsusp_page_is_forbidden(page) || swsusp_page_is_free(page))
 		return NULL;
@@ -1123,7 +1129,7 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 		/* TODO: taint kernel */
 		pr_err("Get S4 sign key fail: %ld\n", PTR_ERR(s4_sign_key));
 		ret = PTR_ERR(s4_sign_key);
-		goto error_generate;
+		goto error_key;
 	}
 
 	pks = generate_signature(s4_sign_key, digest, PKEY_HASH_SHA256, false);
@@ -1131,9 +1137,11 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 		/* TODO: taint kernel */
 		pr_err("Generate signature fail: %lx", PTR_ERR(pks));
 		ret = PTR_ERR(pks);
-		goto error_generate;
+		goto error_sign;
 	} else
 		memcpy(signature, pks->S, pks->k);
+
+	destroy_sign_key(s4_sign_key);
 
 	if (pks && pks->digest)
 		kfree(pks->digest);
@@ -1145,7 +1153,9 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 
 	return 0;
 
-error_generate:
+error_sign:
+	destroy_sign_key(s4_sign_key);
+error_key:
 error_shash:
 	kfree(digest);
 error_digest:
