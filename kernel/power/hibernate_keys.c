@@ -100,6 +100,8 @@ static void *efi_key_load_data(efi_char16_t *var_name, unsigned long *datasize)
 	status = efi.set_variable(var_name, &EFI_HIBERNATE_GUID, attributes, 0, NULL);
 	if (status != EFI_SUCCESS)
 		pr_warn("PM: Clean key data error: %lx, %d\n", status, efi_status_to_err(status));
+	else
+		pr_info("PM: Clean key data success!");
 
 	return data_page;
 
@@ -113,27 +115,27 @@ error_size:
 
 int load_sign_key_data(void)
 {
+	void *page_addr;
+	unsigned long data_size;
 	int ret = 0;
 
-	if (skey_page_addr && !IS_ERR(skey_page_addr))
-		free_page((unsigned long) skey_page_addr);
-
-	skey_dsize = 0;
-	skey_page_addr = efi_key_load_data(efi_s4_sign_key_name, &skey_dsize);
-	if (IS_ERR(skey_page_addr)) {
-		ret = PTR_ERR(skey_page_addr);
+	data_size = 0;
+	page_addr = efi_key_load_data(efi_s4_sign_key_name, &data_size);
+	if (IS_ERR(page_addr)) {
+		ret = PTR_ERR(page_addr);
 		pr_err("PM: Load s4 sign key data error: %d\n", ret);
-	} else
+	} else {
+		if (skey_page_addr && !IS_ERR(skey_page_addr)) {
+			memset(skey_page_addr, 0, skey_dsize);
+			free_page((unsigned long) skey_page_addr);
+		}
+		skey_dsize = data_size;
+		skey_page_addr = page_addr;
 		pr_info("PM: Load s4 sign key data success!\n");
+	}
 
 	return ret;
 }
-
-static int init_sign_key(void)
-{
-	return load_sign_key_data();
-}
-
 
 struct key *get_sign_key(void)
 {
@@ -228,5 +230,3 @@ size_t get_key_length(const struct key *key)
 
 	return len;
 }
-
-late_initcall(init_sign_key);
