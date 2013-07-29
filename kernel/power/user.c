@@ -197,6 +197,9 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 	struct snapshot_data *data;
 	loff_t size;
 	sector_t offset;
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+	int skey_error = 0;
+#endif
 
 	if (_IOC_TYPE(cmd) != SNAPSHOT_IOC_MAGIC)
 		return -ENOTTY;
@@ -229,12 +232,12 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		if (!data->frozen || data->ready)
 			break;
 		pm_restore_gfp_mask();
-		error = load_sign_key_data();
-		if (error) {
-			pr_err("Load private key fail: %d", error);
-			/* error = PTR_ERR(key); */
-			/* TODO: taint kernel */
-		}
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+		skey_error = load_sign_key_data();
+		if (skey_error)
+			pr_err("Load private key fail: %d", skey_error);
+		/* TODO: lock down user land interface */
+#endif
 		thaw_processes();
 		data->frozen = 0;
 		break;
@@ -260,13 +263,15 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 			error = -EPERM;
 			break;
 		}
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
 		if (!snapshot_image_verify())
 			pr_info("PM: snapshot signature check SUCCESS!\n");
-		else {	/* TODO: taint kernel */
+		else {
 			pr_info("PM: snapshot signature check FAIL!\n");
 			error = -EPERM;
 			break;
 		}
+#endif
 		error = hibernation_restore(data->platform_support);
 		break;
 

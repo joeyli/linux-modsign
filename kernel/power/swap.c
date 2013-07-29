@@ -1010,10 +1010,15 @@ static int load_image(struct swap_map_handle *handle,
 		snapshot_write_finalize(snapshot);
 		if (!snapshot_image_loaded(snapshot))
 			ret = -ENODATA;
-		if (!snapshot_image_verify())
-			pr_info("PM: snapshot signature check SUCCESS!\n");
-		else	/* TODO: taint kernel */
-			pr_info("PM: snapshot signature check FAIL!\n");
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+		else {
+			ret = snapshot_image_verify();
+			if (ret)
+				pr_info("PM: snapshot signature check FAIL: %d\n", ret);
+			else
+				pr_info("PM: snapshot signature check SUCCESS!\n");
+		}
+#endif
 	}
 
 	swsusp_show_speed(&start, &stop, nr_to_read, "Read");
@@ -1360,10 +1365,6 @@ out_finish:
 		snapshot_write_finalize(snapshot);
 		if (!snapshot_image_loaded(snapshot))
 			ret = -ENODATA;
-		if (!snapshot_image_verify())
-			pr_info("PM: snapshot signature check SUCCESS!\n");
-		else	/* TODO: taint kernel */
-			pr_info("PM: snapshot signature check FAIL!\n");
 		if (!ret) {
 			if (swsusp_header->flags & SF_CRC32_MODE) {
 				if(handle->crc32 != swsusp_header->crc32) {
@@ -1373,6 +1374,15 @@ out_finish:
 				}
 			}
 		}
+#ifdef CONFIG_SNAPSHOT_VERIFICATION
+		if (!ret) {
+			ret = snapshot_image_verify();
+			if (ret)
+				pr_info("PM: snapshot signature check FAIL: %d\n", ret);
+			else	/* TODO: taint kernel */
+				pr_info("PM: snapshot signature check SUCCESS!\n");
+		}
+#endif
 	}
 	swsusp_show_speed(&start, &stop, nr_to_read, "Read");
 out_clean:
