@@ -137,6 +137,11 @@ int load_sign_key_data(void)
 	return ret;
 }
 
+bool sign_key_data_loaded(void)
+{
+	return skey_page_addr && !IS_ERR(skey_page_addr);
+}
+
 struct key *get_sign_key(void)
 {
 	const struct cred *cred = current_cred();
@@ -181,6 +186,26 @@ void destroy_sign_key(struct key *skey)
 	skey_dsize = 0;
 	if (skey)
 		key_put(skey);
+}
+
+int find_wake_key_data(void)
+{
+	unsigned long datasize = 0;
+	efi_status_t status;
+	int ret = 0;
+
+	if (!efi_enabled(EFI_RUNTIME_SERVICES))
+		return -EPERM;
+
+	/* obtain the size */
+	status = efi.get_variable(efi_s4_wake_key_name, &EFI_HIBERNATE_GUID,
+				  NULL, &datasize, NULL);
+	if (status != EFI_BUFFER_TOO_SMALL) {
+		ret = efi_status_to_err(status);
+		pr_err("PM: Couldn't find key data size: 0x%lx\n", status);
+	}
+
+	return ret;
 }
 
 struct key *load_wake_key(void)
