@@ -60,7 +60,8 @@ bool swsusp_page_is_sign_key(struct page *page)
 	return ret;
 }
 
-static void *efi_key_load_data(efi_char16_t *var_name, unsigned long *datasize)
+static void *efi_key_load_data(efi_char16_t *var_name, unsigned long *datasize,
+				bool clean)
 {
 	u32 attributes;
 	void *data_page;
@@ -96,6 +97,9 @@ static void *efi_key_load_data(efi_char16_t *var_name, unsigned long *datasize)
 		goto error_get;
 	}
 
+	if (!clean)
+		goto no_clean;
+
 	/* clean S4 key data from EFI variable */
 	status = efi.set_variable(var_name, &EFI_HIBERNATE_GUID, attributes, 0, NULL);
 	if (status != EFI_SUCCESS)
@@ -103,6 +107,7 @@ static void *efi_key_load_data(efi_char16_t *var_name, unsigned long *datasize)
 	else
 		pr_info("PM: Clean key data success!");
 
+no_clean:
 	return data_page;
 
 error_get:
@@ -120,7 +125,7 @@ int load_sign_key_data(void)
 	int ret = 0;
 
 	data_size = 0;
-	page_addr = efi_key_load_data(efi_s4_sign_key_name, &data_size);
+	page_addr = efi_key_load_data(efi_s4_sign_key_name, &data_size, true);
 	if (IS_ERR(page_addr)) {
 		ret = PTR_ERR(page_addr);
 		pr_err("PM: Load s4 sign key data error: %d\n", ret);
@@ -216,7 +221,7 @@ struct key *load_wake_key(void)
 	struct key *wkey;
 	int err;
 
-	page_addr = efi_key_load_data(efi_s4_wake_key_name, &datasize);
+	page_addr = efi_key_load_data(efi_s4_wake_key_name, &datasize, false);
 	if (IS_ERR(page_addr)) {
 		wkey = (struct key *)page_addr;
 		goto error_data;
