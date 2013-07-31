@@ -244,7 +244,6 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		skey_error = load_sign_key_data();
 		if (skey_error)
 			pr_err("Load private key fail: %d", skey_error);
-		/* TODO: lock down user land interface */
 #endif
 		thaw_processes();
 		data->frozen = 0;

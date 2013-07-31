@@ -232,7 +232,6 @@ static int mark_swapfiles(struct swap_map_handle *handle, unsigned int flags)
 		swsusp_header->flags = flags;
 		if (flags & SF_CRC32_MODE)
 			swsusp_header->crc32 = handle->crc32;
-		/* TODO: if set RSA signature check of S4 image */
 		if (handle->rsa_signature)
 			memcpy(swsusp_header->rsa_signature, handle->rsa_signature, 512);
 		error = hib_bio_write_page(swsusp_resume_block,

@@ -684,8 +684,6 @@ int hibernate(void)
 		else
 		        flags |= SF_CRC32_MODE;
 
-		/* TODO: set RSA signature check mode to flags */
-
 		pr_debug("PM: writing image.\n");
 		error = swsusp_write(flags);
 		swsusp_free();

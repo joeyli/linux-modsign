@@ -1070,7 +1070,6 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 	if (!capable(CAP_COMPROMISE_KERNEL)) {
 		tfm = crypto_alloc_shash(SNAPSHOT_HASH, 0, 0);
 		if (IS_ERR(tfm)) {
-			/* TODO: taint kernel */
 			pr_err("IS_ERR(tfm): %ld", PTR_ERR(tfm));
 			return PTR_ERR(tfm);
 		}
@@ -1079,7 +1078,6 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 		digest_size = crypto_shash_digestsize(tfm);
 		digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
 		if (!digest) {
-			/* TODO: taint kernel */
 			pr_err("digest allocate fail");
 			ret = -ENOMEM;
 			goto error_digest;
@@ -1142,7 +1140,6 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 	/* Generate signature by private key */
 	s4_sign_key = get_sign_key();
 	if (!s4_sign_key || IS_ERR(s4_sign_key)) {
-		/* TODO: taint kernel */
 		pr_err("Get S4 sign key fail: %ld\n", PTR_ERR(s4_sign_key));
 		ret = PTR_ERR(s4_sign_key);
 		goto error_key;
@@ -1150,7 +1147,6 @@ copy_data_pages(struct memory_bitmap *copy_bm, struct memory_bitmap *orig_bm)
 
 	pks = generate_signature(s4_sign_key, digest, PKEY_HASH_SHA256, false);
 	if (IS_ERR(pks)) {
-		/* TODO: taint kernel */
 		pr_err("Generate signature fail: %lx", PTR_ERR(pks));
 		ret = PTR_ERR(pks);
 		goto error_sign;
@@ -2376,7 +2372,6 @@ int snapshot_write_next(struct snapshot_handle *handle)
 		 */
 		h_buf = kmalloc(sizeof(void *) * nr_copy_pages, GFP_KERNEL);
 		if (!h_buf)
-			/* TODO: taint kernel */
 			pr_err("Allocate hash buffer fail!");
 
 		error = memory_bm_create(&copy_bm, GFP_ATOMIC, PG_ANY);
@@ -2462,14 +2457,12 @@ int snapshot_verify_signature(u8 *digest, size_t digest_size)
 	/* load public key */
 	s4_wake_key = load_wake_key();
 	if (!s4_wake_key || IS_ERR(s4_wake_key)) {
-		/* TODO: taint kernel */
 		pr_err("Get S4 wake key fail: %ld\n", PTR_ERR(s4_wake_key));
 		return PTR_ERR(s4_wake_key);
 	}
 
 	pks = kzalloc(digest_size + sizeof(*pks), GFP_KERNEL);
 	if (!pks) {
-		/* TODO: Taint kernel*/
 		pr_err("Allocate public key signature fail!");
 		return -ENOMEM;
 	}
@@ -2479,7 +2472,6 @@ int snapshot_verify_signature(u8 *digest, size_t digest_size)
 
 	mpi = mpi_read_raw_data(signature, get_key_length(s4_wake_key));
 	if (!mpi) {
-		/* TODO: taint kernel */
 		pr_err("PM: mpi_read_raw_data fail!\n");
 		ret = -ENOMEM;
 		goto error_mpi;
@@ -2490,7 +2482,6 @@ int snapshot_verify_signature(u8 *digest, size_t digest_size)
 	/* RSA signature check */
 	ret = verify_signature(s4_wake_key, pks);
 	if (ret) {
-		/* TODO: taint kernel*/
 		pr_err("snapshot S4 signature verification fail: %d\n", ret);
 		goto error_verify;
 	} else
@@ -2525,7 +2516,6 @@ int snapshot_image_verify(void)
 
 	tfm = crypto_alloc_shash(SNAPSHOT_HASH, 0, 0);
 	if (IS_ERR(tfm)) {
-		/* TODO: taint kernel */
 		pr_err("IS_ERR(tfm): %ld", PTR_ERR(tfm));
 		return PTR_ERR(tfm);
 	}
@@ -2534,7 +2524,6 @@ int snapshot_image_verify(void)
 	digest_size = crypto_shash_digestsize(tfm);
 	digest = kzalloc(digest_size + desc_size, GFP_KERNEL);
 	if (!digest) {
-		/* TODO: taint kernel */
 		pr_err("digest allocate fail");
 		ret = -ENOMEM;
 		goto error_digest;
