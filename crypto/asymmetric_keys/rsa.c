@@ -244,7 +244,7 @@ static int EMSA_PKCS1_v1_5_ENCODE(const u8 *M, size_t emLen,
 	else
 		pks->pkey_hash_algo = hash_algo;
 
-	/* TODO: 1) Apply the hash function to the message M to produce a hash value H */
+	/* 1) Apply the hash function to the message M to produce a hash value H */
 	tfm = crypto_alloc_shash(pkey_hash_algo[hash_algo], 0, 0);
 	if (IS_ERR(tfm))
 		return (PTR_ERR(tfm) == -ENOENT) ? -ENOPKG : PTR_ERR(tfm);
@@ -272,13 +272,12 @@ static int EMSA_PKCS1_v1_5_ENCODE(const u8 *M, size_t emLen,
 		if (ret < 0)
 			goto error_shash;
 	} else {
-		/* TODO: check digest size of M? */
 		memcpy(pks->digest, M, pks->digest_size);
 		pks->digest_size = digest_size;
 	}
 	crypto_free_shash(tfm);
 
-	/* TODO: 2) Encode the algorithm ID for the hash function and the hash value into
+	/* 2) Encode the algorithm ID for the hash function and the hash value into
 	 * an ASN.1 value of type DigestInfo with the DER. Let T be the DER encoding of
 	 * the DigestInfo value and let tLen be the length in octets of T.
 	 */
@@ -290,13 +289,13 @@ static int EMSA_PKCS1_v1_5_ENCODE(const u8 *M, size_t emLen,
 	memcpy(T, RSA_ASN1_templates[hash_algo].data, RSA_ASN1_templates[hash_algo].size);
 	memcpy(T + RSA_ASN1_templates[hash_algo].size, pks->digest, pks->digest_size);
 
-	/* TODO: 3) check If emLen < tLen + 11, output "intended encoded message length too short" */
+	/* 3) check If emLen < tLen + 11, output "intended encoded message length too short" */
 	if (emLen < tLen + 11) {
 		ret = EINVAL;
 		goto error_emLen;
 	}
 
-	/* TODO: 4) Generate an octet string PS consisting of emLen - tLen - 3 octets with 0xff. */
+	/* 4) Generate an octet string PS consisting of emLen - tLen - 3 octets with 0xff. */
 	PS = kmalloc(emLen - tLen - 3, GFP_KERNEL);
 	if (!PS)
 		goto error_P;
@@ -304,7 +303,7 @@ static int EMSA_PKCS1_v1_5_ENCODE(const u8 *M, size_t emLen,
 	for (i = 0; i < (emLen - tLen - 3); i++)
 		PS[i] = 0xff;
 
-	/* TODO: 5) Concatenate PS, the DER encoding T, and other padding to form the encoded
+	/* 5) Concatenate PS, the DER encoding T, and other padding to form the encoded
 	 * message EM as EM = 0x00 || 0x01 || PS || 0x00 || T
 	 */
 	EM = kmalloc(3 + emLen - tLen - 3 + tLen, GFP_KERNEL);
@@ -476,7 +475,7 @@ static struct public_key_signature *RSA_generate_signature(
 	if (!pks)
 		goto error_no_pks;
 
-	/* TODO 1): EMSA-PKCS1-v1_5 encoding: */
+	/* 1): EMSA-PKCS1-v1_5 encoding: */
 	/* Use the private key modulus size to be EM length */
 	emLen = mpi_get_nbits(key->rsa.n);
 	emLen = (emLen + 7) / 8;
@@ -485,12 +484,12 @@ static struct public_key_signature *RSA_generate_signature(
 	if (ret < 0)
 		goto error_v1_5_encode;
 
-	/* TODO 2): m = OS2IP (EM) */
+	/* 2): m = OS2IP (EM) */
 	ret = RSA_OS2IP(EM, emLen, &m);
 	if (ret < 0)
 		goto error_v1_5_encode;
 
-	/* TODO 3): s = RSASP1 (K, m) */
+	/* 3): s = RSASP1 (K, m) */
 	RSASP1(key, m, &s);
 
 	pks->rsa.s = s;
@@ -498,10 +497,8 @@ static struct public_key_signature *RSA_generate_signature(
 	pks->k = mpi_get_nbits(s);
 	pks->k = (pks->k + 7) / 8;
 
-	/* TODO 4): S = I2OSP (s, k) */
+	/* 4): S = I2OSP (s, k) */
 	_RSA_I2OSP(s, &X_size, &pks->S);
-
-	/* TODO: signature S to a u8* S or set to sig->rsa.s? */
 
 	return pks;
 
