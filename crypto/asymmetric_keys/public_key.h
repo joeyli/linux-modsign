@@ -25,9 +25,6 @@ struct public_key_algorithm {
 	u8		n_sig_mpi;	/* Number of MPIs in a signature */
 	int (*verify_signature)(const struct public_key *key,
 				const struct public_key_signature *sig);
-	struct public_key_signature* (*generate_signature)(
-		const struct public_key *key, u8 *M,
-		enum pkey_hash_algo hash_algo, const bool hash);
 };
 
 extern const struct public_key_algorithm RSA_public_key_algorithm;

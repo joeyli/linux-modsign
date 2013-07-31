@@ -15,7 +15,7 @@
 #include <keys/asymmetric-subtype.h>
 #include <keys/asymmetric-parser.h>
 #include <crypto/hash.h>
-#include "public_key.h"
+#include "private_key.h"
 #include "pkcs8-asn1.h"
 #include "pkcs8_parser.h"
 
@@ -23,11 +23,11 @@
 #define FINGERPRINT_HASH "sha256"
 
 static const
-struct public_key_algorithm *pkcs8_private_key_algorithms[PKEY_ALGO__LAST] = {
+struct private_key_algorithm *pkcs8_private_key_algorithms[PKEY_ALGO__LAST] = {
 	[PKEY_ALGO_DSA]         = NULL,
 #if defined(CONFIG_PUBLIC_KEY_ALGO_RSA) || \
 	defined(CONFIG_PUBLIC_KEY_ALGO_RSA_MODULE)
-	[PKEY_ALGO_RSA]         = &RSA_public_key_algorithm,
+	[PKEY_ALGO_RSA]         = &RSA_private_key_algorithm,
 #endif
 };
 
@@ -91,10 +91,9 @@ static int pkcs8_key_preparse(struct key_preparsed_payload *prep)
 	sprintf(description, "%s", KEY_PREFIX);
 	memcpy(description + strlen(KEY_PREFIX), fingerprint, strlen(fingerprint));
 
-	/* TODO: We're pinning the module by being linked against it */
-	/* TODO: separate private key from public key */
-	__module_get(public_key_subtype.owner);
-	prep->type_data[0] = &public_key_subtype;
+	/* We're pinning the module by being linked against it */
+	__module_get(private_key_subtype.owner);
+	prep->type_data[0] = &private_key_subtype;
 	prep->type_data[1] = fingerprint;
 	prep->payload = info->priv;
 	prep->description = description;

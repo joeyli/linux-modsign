@@ -52,7 +52,7 @@ struct pkcs8_info *pkcs8_info_parse(const void *data, size_t datalen)
 	info = kzalloc(sizeof(struct pkcs8_info), GFP_KERNEL);
 	if (!info)
 		goto error_no_info;
-	info->priv = kzalloc(sizeof(struct public_key), GFP_KERNEL);
+	info->priv = kzalloc(sizeof(struct private_key), GFP_KERNEL);
 	if (!info->priv)
 		goto error_no_ctx;
 	ctx = kzalloc(sizeof(struct pkcs8_parse_context), GFP_KERNEL);

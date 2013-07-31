@@ -81,6 +81,29 @@ struct public_key {
 	};
 };
 
+struct private_key {
+	const struct private_key_algorithm *algo;
+	u8	capabilities;
+	enum pkey_id_type id_type:8;
+	union {
+		MPI	mpi[5];
+		struct {
+			MPI	p;	/* DSA prime */
+			MPI	q;	/* DSA group order */
+			MPI	g;	/* DSA group generator */
+			MPI	y;	/* DSA public-key value = g^x mod p */
+			MPI	x;	/* DSA secret exponent (if present) */
+		} dsa;
+		struct {
+			MPI	n;	/* RSA public modulus */
+			MPI	e;	/* RSA public encryption exponent */
+			MPI	d;	/* RSA secret encryption exponent (if present) */
+			MPI	p;	/* RSA secret prime (if present) */
+			MPI	q;	/* RSA secret prime (if present) */
+		} rsa;
+	};
+};
+
 extern void public_key_destroy(void *payload);
 
 /*

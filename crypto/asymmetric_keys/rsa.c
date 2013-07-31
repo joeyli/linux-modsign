@@ -15,6 +15,7 @@
 #include <linux/slab.h>
 #include <crypto/hash.h>
 #include "public_key.h"
+#include "private_key.h"
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("RSA Public Key Algorithm");
@@ -87,7 +88,7 @@ static const struct {
 /*
  * RSASP1() function [RFC3447 sec 5.2.1]
  */
-static int RSASP1(const struct public_key *key, MPI m, MPI *_s)
+static int RSASP1(const struct private_key *key, MPI m, MPI *_s)
 {
 	MPI s;
 	int ret;
@@ -457,7 +458,7 @@ error:
  * Perform the generation step [RFC3447 sec 8.2.1].
  */
 static struct public_key_signature *RSA_generate_signature(
-		const struct public_key *key, u8 *M,
+		const struct private_key *key, u8 *M,
 		enum pkey_hash_algo hash_algo, const bool hash)
 {
 	struct public_key_signature *pks;
@@ -517,6 +518,14 @@ const struct public_key_algorithm RSA_public_key_algorithm = {
 	.n_sec_mpi	= 3,
 	.n_sig_mpi	= 1,
 	.verify_signature = RSA_verify_signature,
-	.generate_signature = RSA_generate_signature,
 };
 EXPORT_SYMBOL_GPL(RSA_public_key_algorithm);
+
+const struct private_key_algorithm RSA_private_key_algorithm = {
+	.name		= "RSA",
+	.n_pub_mpi	= 2,
+	.n_sec_mpi	= 3,
+	.n_sig_mpi	= 1,
+	.generate_signature = RSA_generate_signature,
+};
+EXPORT_SYMBOL_GPL(RSA_private_key_algorithm);

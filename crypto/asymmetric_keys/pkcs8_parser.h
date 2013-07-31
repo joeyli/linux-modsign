@@ -13,7 +13,7 @@
 
 struct pkcs8_info {
 	enum pkey_algo privkey_algo : 8;	/* Private key algorithm */
-	struct public_key *priv;		/* Private key */
+	struct private_key *priv;		/* Private key */
 };
 
 /*
